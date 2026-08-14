@@ -32,16 +32,59 @@ jobs:
           echo ==== dir listing repo root ====
           dir /b
 
+      - name: Detect installed Windows SDK and Visual Studio (vswhere) and set WINSDK
+        shell: powershell
+        run: |
+          Write-Host "Detecting Windows 10 SDKs under C:\Program Files (x86)\Windows Kits\10\Include"
+          $includePath = 'C:\Program Files (x86)\Windows Kits\10\Include'
+          $found = $false
+          if (Test-Path $includePath) {
+            $sdks = Get-ChildItem $includePath -Directory | Select-Object -ExpandProperty Name | Where-Object { $_ -match '^10\.' } | Sort-Object -Descending
+            if ($sdks.Count -gt 0) {
+              $selected = $sdks[0]
+              Write-Host "Found SDKs: $($sdks -join ', ')"
+              Write-Host "Selecting SDK: $selected"
+              Add-Content -Path $env:GITHUB_ENV -Value "WINSDK=$selected"
+              $found = $true
+            }
+          }
+          if (-not $found) {
+            Write-Host "No SDK found in include path, trying vswhere for Visual Studio installation"
+            $vswhere = "C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe"
+            if (Test-Path $vswhere) {
+              $inst = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.Windows10SDK.19041 -property installationPath 2>$null
+              if ($inst) {
+                Write-Host "vswhere found installation: $inst"
+                # Try common include path for 19041
+                $fallback = '10.0.19041.0'
+                Write-Host "Using fallback SDK: $fallback"
+                Add-Content -Path $env:GITHUB_ENV -Value "WINSDK=$fallback"
+                $found = $true
+              }
+            }
+          }
+          if (-not $found) {
+            Write-Host "No Windows 10 SDK detected - falling back to 10.0.19041.0"
+            Add-Content -Path $env:GITHUB_ENV -Value "WINSDK=10.0.19041.0"
+          }
+          Write-Host "WINSDK set to: $env:WINSDK"
+
       - name: Restore NuGet packages (if any)
         shell: cmd
         run: |
           nuget restore PrismTextureStreamerFB.sln || dotnet restore PrismTextureStreamerFB.sln || echo "nuget/dotnet restore returned non-zero"
 
-      - name: Build solution with MSBuild (diagnostic + fixed OutDir + SDK override)
+      - name: Build solution with MSBuild (diagnostic + OutDir + override SDK)
         shell: cmd
         run: |
-          echo Forcing WindowsTargetPlatformVersion to 10.0.19041.0 to match hosted runner SDKs
-          msbuild PrismTextureStreamerFB.sln /p:WindowsTargetPlatformVersion=10.0.19041.0 /p:Configuration=${{ matrix.configuration }} /p:Platform=${{ matrix.platform }} /p:OutDir=%CD%\artifacts\ /verbosity:diagnostic /m
+          echo Using Windows SDK: %WINSDK%
+          setlocal enabledelayedexpansion
+          if "!WINSDK!"=="" (
+            echo WINSDK not set, using 10.0.19041.0
+            set WINSDK=10.0.19041.0
+          )
+          echo Building with Configuration=${{ matrix.configuration }} Platform=${{ matrix.platform }}
+          msbuild PrismTextureStreamerFB.sln /p:WindowsTargetPlatformVersion=%WINSDK% /p:Configuration=${{ matrix.configuration }} /p:Platform=${{ matrix.platform }} /p:OutDir=%CD%\artifacts\ /verbosity:normal /m
           if %ERRORLEVEL% neq 0 (
             echo MSBuild failed with %ERRORLEVEL%
             exit /b %ERRORLEVEL%
