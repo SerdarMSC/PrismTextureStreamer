@@ -32,26 +32,6 @@ jobs:
           echo ==== dir listing repo root ====
           dir /b
 
-      - name: Detect installed Windows SDK and export to GITHUB_ENV
-        shell: powershell
-        run: |
-          $path = 'C:\Program Files (x86)\Windows Kits\10\Include'
-          if (Test-Path $path) {
-            $sdks = Get-ChildItem $path -Directory | Select-Object -ExpandProperty Name | Sort-Object -Descending
-            if ($sdks.Count -gt 0) {
-              Write-Output "Found SDKs: $sdks"
-              $selected = $sdks[0]
-              Write-Output "Using SDK: $selected"
-              Add-Content -Path $env:GITHUB_ENV -Value "WINSDK=$selected"
-            } else {
-              Write-Output "No Windows 10 SDKs found under $path"
-              exit 1
-            }
-          } else {
-            Write-Output "$path not found on runner"
-            exit 1
-          }
-
       - name: Restore NuGet packages (if any)
         shell: cmd
         run: |
@@ -60,14 +40,8 @@ jobs:
       - name: Build solution with MSBuild (diagnostic + fixed OutDir + SDK override)
         shell: cmd
         run: |
-          echo Using Windows SDK: %WINSDK%
-          if "%WINSDK%"=="" (
-            echo WINSDK not set, continuing without overriding WindowsTargetPlatformVersion
-            msbuild PrismTextureStreamerFB.sln /p:Configuration=${{ matrix.configuration }} /p:Platform=${{ matrix.platform }} /p:OutDir=%CD%\artifacts\ /verbosity:diagnostic /m
-          ) else (
-            echo Overriding WindowsTargetPlatformVersion to %WINSDK%
-            msbuild PrismTextureStreamerFB.sln /p:WindowsTargetPlatformVersion=%WINSDK% /p:Configuration=${{ matrix.configuration }} /p:Platform=${{ matrix.platform }} /p:OutDir=%CD%\artifacts\ /verbosity:diagnostic /m
-          )
+          echo Forcing WindowsTargetPlatformVersion to 10.0.19041.0 to match hosted runner SDKs
+          msbuild PrismTextureStreamerFB.sln /p:WindowsTargetPlatformVersion=10.0.19041.0 /p:Configuration=${{ matrix.configuration }} /p:Platform=${{ matrix.platform }} /p:OutDir=%CD%\artifacts\ /verbosity:diagnostic /m
           if %ERRORLEVEL% neq 0 (
             echo MSBuild failed with %ERRORLEVEL%
             exit /b %ERRORLEVEL%
