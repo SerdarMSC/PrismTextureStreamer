@@ -32,10 +32,10 @@ jobs:
           echo ==== dir listing repo root ====
           dir /b
 
-      - name: Restore NuGet packages (if any)
+      - name: Skip NuGet restore for native C++ projects
         shell: cmd
         run: |
-          nuget restore PrismTextureStreamerFB.sln || dotnet restore PrismTextureStreamerFB.sln || echo "nuget/dotnet restore returned non-zero"
+          echo "No NuGet restore needed for native C++ projects"
 
       - name: Build solution with MSBuild (force SDK 10.0.19041.0)
         shell: cmd
