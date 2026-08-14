@@ -1,0 +1,25 @@
+steps:
+  - name: Checkout repository
+    uses: actions/checkout@v4
+
+  - name: Restore NuGet packages (if any)
+    shell: cmd
+    run: |
+      nuget restore PrismTextureStreamerFB.sln || dotnet restore PrismTextureStreamerFB.sln
+
+  - name: Build solution with MSBuild
+    shell: cmd
+    run: |
+      msbuild PrismTextureStreamerFB.sln /p:Configuration=%{{ matrix.configuration }}% /p:Platform=%{{ matrix.platform }}% /m
+
+  - name: Show generated DLLs
+    shell: cmd
+    run: |
+      echo "Looking for built DLLs..."
+      dir /s /b *.dll || echo "No DLLs found"
+
+  - name: Upload DLL artifacts
+    uses: actions/upload-artifact@v4
+    with:
+      name: prismtexturestreamer-dlls
+      path: '**/*.dll'
