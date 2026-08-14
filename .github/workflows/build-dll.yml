@@ -1,25 +1,42 @@
-steps:
-  - name: Checkout repository
-    uses: actions/checkout@v4
+name: Build DLL (Windows)
 
-  - name: Restore NuGet packages (if any)
-    shell: cmd
-    run: |
-      nuget restore PrismTextureStreamerFB.sln || dotnet restore PrismTextureStreamerFB.sln
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
 
-  - name: Build solution with MSBuild
-    shell: cmd
-    run: |
-      msbuild PrismTextureStreamerFB.sln /p:Configuration=%{{ matrix.configuration }}% /p:Platform=%{{ matrix.platform }}% /m
+jobs:
+  build:
+    runs-on: windows-latest
+    strategy:
+      matrix:
+        configuration: [Release]
+        platform: [x64]
 
-  - name: Show generated DLLs
-    shell: cmd
-    run: |
-      echo "Looking for built DLLs..."
-      dir /s /b *.dll || echo "No DLLs found"
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-  - name: Upload DLL artifacts
-    uses: actions/upload-artifact@v4
-    with:
-      name: prismtexturestreamer-dlls
-      path: '**/*.dll'
+      - name: Restore NuGet packages (if any)
+        shell: cmd
+        run: |
+          nuget restore PrismTextureStreamerFB.sln || dotnet restore PrismTextureStreamerFB.sln
+
+      - name: Build solution with MSBuild
+        shell: cmd
+        run: |
+          msbuild PrismTextureStreamerFB.sln /p:Configuration=${{ matrix.configuration }} /p:Platform=${{ matrix.platform }} /m
+
+      - name: Show generated DLLs
+        shell: cmd
+        run: |
+          echo "Looking for built DLLs..."
+          dir /s /b *.dll || echo "No DLLs found"
+
+      - name: Upload DLL artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: prismtexturestreamer-dlls
+          path: '**/*.dll'
