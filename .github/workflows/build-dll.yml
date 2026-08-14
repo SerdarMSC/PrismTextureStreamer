@@ -13,30 +13,51 @@ jobs:
     strategy:
       matrix:
         configuration: [Release]
-        platform: [x64]
+        platform: [x64, Win32]
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Setup MSBuild (add msbuild to PATH)
+        uses: microsoft/setup-msbuild@v1
+
+      - name: Show environment info
+        shell: cmd
+        run: |
+          echo Configuration=${{ matrix.configuration }} Platform=${{ matrix.platform }}
+          echo WORKING DIR: %CD%
+          where msbuild || echo "msbuild not found"
+          msbuild /version || echo "msbuild /version failed"
+          echo ==== dir listing repo root ====
+          dir /b
+
       - name: Restore NuGet packages (if any)
         shell: cmd
         run: |
-          nuget restore PrismTextureStreamerFB.sln || dotnet restore PrismTextureStreamerFB.sln
+          nuget restore PrismTextureStreamerFB.sln || dotnet restore PrismTextureStreamerFB.sln || echo "nuget/dotnet restore returned non-zero"
 
-      - name: Build solution with MSBuild
+      - name: Build solution with MSBuild (diagnostic + fixed OutDir)
         shell: cmd
         run: |
-          msbuild PrismTextureStreamerFB.sln /p:Configuration=${{ matrix.configuration }} /p:Platform=${{ matrix.platform }} /m
+          msbuild PrismTextureStreamerFB.sln /p:Configuration=${{ matrix.configuration }} /p:Platform=${{ matrix.platform }} /p:OutDir=%CD%\artifacts\ /verbosity:diagnostic /m
+          if %ERRORLEVEL% neq 0 (
+            echo MSBuild failed with %ERRORLEVEL%
+            exit /b %ERRORLEVEL%
+          )
 
-      - name: Show generated DLLs
+      - name: Show artifacts dir
         shell: cmd
         run: |
-          echo "Looking for built DLLs..."
-          dir /s /b *.dll || echo "No DLLs found"
+          echo ==== artifacts content ====
+          if exist artifacts (
+            dir artifacts /s /b
+          ) else (
+            echo "artifacts folder not found"
+          )
 
       - name: Upload DLL artifacts
         uses: actions/upload-artifact@v4
         with:
           name: prismtexturestreamer-dlls
-          path: '**/*.dll'
+          path: artifacts/**/*.dll
