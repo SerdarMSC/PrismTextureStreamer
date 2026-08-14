@@ -37,12 +37,18 @@ jobs:
         run: |
           echo "No NuGet restore needed for native C++ projects"
 
-      - name: Build solution with MSBuild (force SDK 10.0.19041.0)
+      - name: Build solution with MSBuild (force SDK 10.0.19041.0 and map platform)
         shell: cmd
         run: |
           echo Forcing WindowsTargetPlatformVersion to 10.0.19041.0 to avoid SDK detection issues on hosted runners
-          echo Building with Configuration=${{ matrix.configuration }} Platform=${{ matrix.platform }}
-          msbuild PrismTextureStreamerFB.sln /p:WindowsTargetPlatformVersion=10.0.19041.0 /p:Configuration=${{ matrix.configuration }} /p:Platform=${{ matrix.platform }} /p:OutDir=%CD%\artifacts\ /verbosity:normal /m
+          set "MATRIX_PLATFORM=${{ matrix.platform }}"
+          if "%MATRIX_PLATFORM%"=="Win32" (
+            set "SOL_PLATFORM=x86"
+          ) else (
+            set "SOL_PLATFORM=%MATRIX_PLATFORM%"
+          )
+          echo Building with Configuration=${{ matrix.configuration }} MatrixPlatform=%MATRIX_PLATFORM% SolutionPlatform=%SOL_PLATFORM%
+          msbuild PrismTextureStreamerFB.sln /p:WindowsTargetPlatformVersion=10.0.19041.0 /p:Configuration=${{ matrix.configuration }} /p:Platform=%SOL_PLATFORM% /p:OutDir=%CD%\artifacts\ /verbosity:normal /m
           if %ERRORLEVEL% neq 0 (
             echo MSBuild failed with %ERRORLEVEL%
             exit /b %ERRORLEVEL%
