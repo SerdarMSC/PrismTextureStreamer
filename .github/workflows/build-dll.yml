@@ -39,23 +39,27 @@ jobs:
           Write-Host "Kullanilacak: $latest"
           "WINSDK=$latest" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
-      # Yeni SDK'larda winrt/base.h artik windowsapp.lib'i otomatik linklemiyor.
-      # WINRT_IMPL_RoGetActivationFactory / RoOriginateLanguageException
-      # cozumlenmesi icin link satirina elle ekliyoruz.
-      # (Kalici cozum: ayni satiri vcxproj'daki AdditionalDependencies'e ekle.)
-      - name: WinRT link duzeltmesi (props enjeksiyonu)
+      # Iki duzeltme enjekte ediyoruz:
+      #  1) NOMINMAX -> windows.h'in min/max makrolari std::min/std::max'i bozuyor (C2589)
+      #  2) windowsapp.lib -> yeni SDK'larda winrt/base.h artik otomatik linklemiyor
+      #     (WINRT_IMPL_RoGetActivationFactory / RoOriginateLanguageException)
+      # Kalici cozum: ayni iki satiri vcxproj'daki x64 konfigurasyonlarina ekle.
+      - name: CI props olustur
         shell: pwsh
         run: |
           @'
           <Project>
             <ItemDefinitionGroup>
+              <ClCompile>
+                <PreprocessorDefinitions>NOMINMAX;WIN32_LEAN_AND_MEAN;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+              </ClCompile>
               <Link>
                 <AdditionalDependencies>windowsapp.lib;%(AdditionalDependencies)</AdditionalDependencies>
               </Link>
             </ItemDefinitionGroup>
           </Project>
-          '@ | Set-Content -Path "$pwd\ci_winrt.props" -Encoding UTF8
-          Get-Content "$pwd\ci_winrt.props"
+          '@ | Set-Content -Path "$pwd\ci_fixes.props" -Encoding UTF8
+          Get-Content "$pwd\ci_fixes.props"
 
       - name: Ortam bilgisi
         shell: pwsh
@@ -71,7 +75,7 @@ jobs:
             /p:Configuration=${{ matrix.configuration }} `
             /p:Platform=x64 `
             /p:WindowsTargetPlatformVersion=$env:WINSDK `
-            /p:ForceImportBeforeCppTargets="$pwd\ci_winrt.props" `
+            /p:ForceImportBeforeCppTargets="$pwd\ci_fixes.props" `
             /p:PostBuildEventUseInBuild=false `
             /p:OutDir="$pwd\artifacts\" `
             /v:normal `
@@ -85,12 +89,15 @@ jobs:
           if (-not (Test-Path "artifacts\PrismTextureStreamerFB.dll")) {
             throw "DLL uretilmedi!"
           }
-          # scs_telemetry_init export'u gercekten var mi kontrol et
-          $dumpbin = Get-ChildItem "C:\Program Files\Microsoft Visual Studio\2022\*\VC\Tools\MSVC\*\bin\Hostx64\x64\dumpbin.exe" |
+          # SCS eklentisi olarak yuklenebilmesi icin export'lar sart
+          $dumpbin = Get-ChildItem "C:\Program Files\Microsoft Visual Studio\2022\*\VC\Tools\MSVC\*\bin\Hostx64\x64\dumpbin.exe" -ErrorAction SilentlyContinue |
                      Select-Object -First 1
           if ($dumpbin) {
-            & $dumpbin.FullName /EXPORTS "artifacts\PrismTextureStreamerFB.dll" |
-              Select-String "scs_telemetry"
+            $exports = & $dumpbin.FullName /EXPORTS "artifacts\PrismTextureStreamerFB.dll"
+            $exports | Select-String "scs_telemetry"
+            if (-not ($exports -match "scs_telemetry_init")) {
+              throw "scs_telemetry_init export'u bulunamadi!"
+            }
           }
 
       - name: Upload artifacts
