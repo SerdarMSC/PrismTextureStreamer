@@ -9,14 +9,13 @@ on:
 
 jobs:
   build:
-    # windows-latest de calisir; VS2022 (v143 toolset) icin 2022 daha garantili
     runs-on: windows-2022
 
     strategy:
       fail-fast: false
       matrix:
         # Proje SADECE x64'te DynamicLibrary. Win32 konfigurasyonlari EXE ve
-        # include/lib yollari tanimsiz -> derlenmez. Bu yuzden x64 sabit.
+        # include/lib yollari tanimsiz -> derlenmez.
         configuration: [Release]
 
     steps:
@@ -40,11 +39,28 @@ jobs:
           Write-Host "Kullanilacak: $latest"
           "WINSDK=$latest" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
+      # Yeni SDK'larda winrt/base.h artik windowsapp.lib'i otomatik linklemiyor.
+      # WINRT_IMPL_RoGetActivationFactory / RoOriginateLanguageException
+      # cozumlenmesi icin link satirina elle ekliyoruz.
+      # (Kalici cozum: ayni satiri vcxproj'daki AdditionalDependencies'e ekle.)
+      - name: WinRT link duzeltmesi (props enjeksiyonu)
+        shell: pwsh
+        run: |
+          @'
+          <Project>
+            <ItemDefinitionGroup>
+              <Link>
+                <AdditionalDependencies>windowsapp.lib;%(AdditionalDependencies)</AdditionalDependencies>
+              </Link>
+            </ItemDefinitionGroup>
+          </Project>
+          '@ | Set-Content -Path "$pwd\ci_winrt.props" -Encoding UTF8
+          Get-Content "$pwd\ci_winrt.props"
+
       - name: Ortam bilgisi
         shell: pwsh
         run: |
           msbuild -version
-          Write-Host "Lib klasoru:"
           Get-ChildItem Lib
 
       - name: Build (x64)
@@ -55,9 +71,9 @@ jobs:
             /p:Configuration=${{ matrix.configuration }} `
             /p:Platform=x64 `
             /p:WindowsTargetPlatformVersion=$env:WINSDK `
+            /p:ForceImportBeforeCppTargets="$pwd\ci_winrt.props" `
             /p:PostBuildEventUseInBuild=false `
             /p:OutDir="$pwd\artifacts\" `
-            /p:GenerateDebugInformation=true `
             /v:normal `
             /nologo
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
@@ -65,9 +81,16 @@ jobs:
       - name: Cikti kontrolu
         shell: pwsh
         run: |
-          Get-ChildItem artifacts -Recurse | Select-Object FullName, Length
+          Get-ChildItem artifacts -Recurse | Select-Object Name, Length
           if (-not (Test-Path "artifacts\PrismTextureStreamerFB.dll")) {
             throw "DLL uretilmedi!"
+          }
+          # scs_telemetry_init export'u gercekten var mi kontrol et
+          $dumpbin = Get-ChildItem "C:\Program Files\Microsoft Visual Studio\2022\*\VC\Tools\MSVC\*\bin\Hostx64\x64\dumpbin.exe" |
+                     Select-Object -First 1
+          if ($dumpbin) {
+            & $dumpbin.FullName /EXPORTS "artifacts\PrismTextureStreamerFB.dll" |
+              Select-String "scs_telemetry"
           }
 
       - name: Upload artifacts
