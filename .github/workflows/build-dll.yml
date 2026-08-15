@@ -1,4 +1,4 @@
-name: Build DLL (Windows)
+name: Build DLL (Windows x64)
 
 on:
   push:
@@ -9,62 +9,72 @@ on:
 
 jobs:
   build:
-    runs-on: windows-latest
+    # windows-latest de calisir; VS2022 (v143 toolset) icin 2022 daha garantili
+    runs-on: windows-2022
+
     strategy:
+      fail-fast: false
       matrix:
+        # Proje SADECE x64'te DynamicLibrary. Win32 konfigurasyonlari EXE ve
+        # include/lib yollari tanimsiz -> derlenmez. Bu yuzden x64 sabit.
         configuration: [Release]
-        platform: [Win32]
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Setup MSBuild (add msbuild to PATH)
-        uses: microsoft/setup-msbuild@v1
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v2
 
-      - name: Show environment info
-        shell: cmd
+      - name: Runner uzerindeki en yeni Windows SDK'yi bul
+        shell: pwsh
         run: |
-          echo Configuration=${{ matrix.configuration }} Platform=${{ matrix.platform }}
-          echo WORKING DIR: %CD%
-          where msbuild || echo "msbuild not found"
-          msbuild /version || echo "msbuild /version failed"
-          echo ==== dir listing repo root ====
-          dir /b
+          $inc = "C:\Program Files (x86)\Windows Kits\10\Include"
+          $sdks = Get-ChildItem $inc -Directory |
+                  Where-Object { $_.Name -match '^10\.\d+\.\d+\.\d+$' } |
+                  Sort-Object { [version]$_.Name }
+          if (-not $sdks) { throw "Windows 10 SDK bulunamadi: $inc" }
+          Write-Host "Bulunan SDK'lar:"
+          $sdks | ForEach-Object { Write-Host "  $($_.Name)" }
+          $latest = $sdks[-1].Name
+          Write-Host "Kullanilacak: $latest"
+          "WINSDK=$latest" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
-      - name: Skip NuGet restore for native C++ projects
-        shell: cmd
+      - name: Ortam bilgisi
+        shell: pwsh
         run: |
-          echo "No NuGet restore needed for native C++ projects"
+          msbuild -version
+          Write-Host "Lib klasoru:"
+          Get-ChildItem Lib
 
-      - name: Build solution with MSBuild (map Win32 -> x86)
-        shell: cmd
+      - name: Build (x64)
+        shell: pwsh
         run: |
-          set "MATRIX_PLATFORM=${{ matrix.platform }}"
-          if "%MATRIX_PLATFORM%"=="Win32" (
-            set "SOL_PLATFORM=x86"
-          ) else (
-            set "SOL_PLATFORM=%MATRIX_PLATFORM%"
-          )
-          echo Building with Configuration=${{ matrix.configuration }} MatrixPlatform=%MATRIX_PLATFORM% SolutionPlatform=%SOL_PLATFORM%
-          msbuild PrismTextureStreamerFB.sln /p:Configuration=${{ matrix.configuration }} /p:Platform=%SOL_PLATFORM% /p:OutDir=%CD%\artifacts\ /verbosity:normal /m
-          if %ERRORLEVEL% neq 0 (
-            echo MSBuild failed with %ERRORLEVEL%
-            exit /b %ERRORLEVEL%
-          )
+          msbuild PrismTextureStreamerFB.sln `
+            /m `
+            /p:Configuration=${{ matrix.configuration }} `
+            /p:Platform=x64 `
+            /p:WindowsTargetPlatformVersion=$env:WINSDK `
+            /p:PostBuildEventUseInBuild=false `
+            /p:OutDir="$pwd\artifacts\" `
+            /p:GenerateDebugInformation=true `
+            /v:normal `
+            /nologo
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-      - name: Show artifacts dir
-        shell: cmd
+      - name: Cikti kontrolu
+        shell: pwsh
         run: |
-          echo ==== artifacts content ====
-          if exist artifacts (
-            dir artifacts /s /b
-          ) else (
-            echo "artifacts folder not found"
-          )
+          Get-ChildItem artifacts -Recurse | Select-Object FullName, Length
+          if (-not (Test-Path "artifacts\PrismTextureStreamerFB.dll")) {
+            throw "DLL uretilmedi!"
+          }
 
-      - name: Upload DLL artifacts
+      - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: prismtexturestreamer-dlls
-          path: artifacts/**/*.dll
+          name: PrismTextureStreamerFB-${{ matrix.configuration }}-x64
+          path: |
+            artifacts/*.dll
+            artifacts/*.pdb
+          if-no-files-found: error
