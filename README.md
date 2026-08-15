@@ -1,3 +1,6 @@
+Forked from : https://github.com/Baldywaldy09/PrismTextureStreamer
+for brightness fix...
+
 <h1 align="center">PrismTextureStreamer</h1>
 
 <p align="center">
